@@ -1,5 +1,6 @@
 import fitbit.api
 import yaml
+import re
 import errno
 import datetime
 import json
@@ -20,6 +21,7 @@ gflags.DEFINE_string("browser", "google-chrome", "command to run as browser")
 gflags.DEFINE_string("output_datadir", "./output-data", "directory to put output data")
 gflags.DEFINE_integer("horizon_days", 30, "days back to look")
 gflags.DEFINE_string("begin_from", "", "as an alternative to horizon_days, specify the yyyy-mm-dd day on which to start")
+gflags.DEFINE_bool("fill_gaps", False, "as an alternative to horizon_days, fill any gaps in the downloaded sequence")
 
 def read_yaml(filename):
   with open(os.path.expanduser(filename)) as f:
@@ -106,21 +108,44 @@ def dates_within_horizon(n, nowdate=None):
   for t in dates_from(ago, nowdate):
     yield t
 
+def next_day(d):
+  return d + datetime.timedelta(days=1)
+
+
 def dates_from(startdate, nowdate=None):
   nowdate = nowdate or datetime.datetime.now().date()
   t = startdate
   while t < nowdate:
     yield t
-    t = t + datetime.timedelta(days=1)
+    t = next_day(t)
 
 def parse_date(s):
   return datetime.datetime.strptime(s, "%Y-%m-%d").date()
+
+def find_gap(basepath, resource):
+  names = os.listdir(os.path.join(basepath, resource))
+  pattern = re.compile(resource + "-(....-..-..)\.json")
+  dates = []
+  for name in names:
+    m = pattern.match(name)
+    if m:
+      dates.append(parse_date(m.group(1)))
+  dates.sort()
+  for i in range(len(dates)-1):
+    nd = next_day(dates[i])
+    if dates[i+1] != nd:
+      return nd
+  return None
 
 if __name__ == "__main__":
   FLAGS(sys.argv)
   fb = obtain_fitbit(FLAGS.secrets, FLAGS.browser)
   if FLAGS.begin_from:
     dates = dates_from(parse_date(FLAGS.begin_from))
+  elif FLAGS.fill_gaps:
+    gap_date = find_gap(FLAGS.output_datadir, "heartrate")
+    print "First gap:", gap_date
+    dates = dates_from(gap_date)
   else:
     dates = dates_within_horizon(FLAGS.horizon_days)
   for date in dates:
