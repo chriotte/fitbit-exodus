@@ -5,6 +5,7 @@ import datetime
 import pandas
 import sys
 import glob
+import logging
 
 FLAGS = gflags.FLAGS
 
@@ -31,6 +32,11 @@ def records_in_json(tz, filename):
     timestamp = datetime.datetime.strptime(timestampStr, "%Y-%m-%d %H:%M:%S")
     try:
       timestampNoDST = trueTimestamp = tz.localize(timestamp, is_dst=None).astimezone(pytz.utc)
+    except pytz.exceptions.NonExistentTimeError as e:
+      logging.error("Nonexistent time: %s", timestampStr)
+      logging.exception(e)
+      trueTimestamp = None
+      timestampNoDST = tz.localize(timestamp, is_dst=False).astimezone(pytz.utc)
     except pytz.exceptions.AmbiguousTimeError:
       trueTimestamp = None
       timestampNoDST = tz.localize(timestamp, is_dst=False).astimezone(pytz.utc)
