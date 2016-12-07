@@ -22,6 +22,7 @@ gflags.DEFINE_string("output_datadir", "./output-data", "directory to put output
 gflags.DEFINE_integer("horizon_days", 30, "days back to look")
 gflags.DEFINE_string("begin_from", "", "as an alternative to horizon_days, specify the yyyy-mm-dd day on which to start")
 gflags.DEFINE_bool("fill_gaps", False, "as an alternative to horizon_days, fill any gaps in the downloaded sequence")
+gflags.DEFINE_bool("exclude_today", True, "exclude today's data (since it might be incomplete)")
 
 def read_yaml(filename):
   with open(os.path.expanduser(filename)) as f:
@@ -91,7 +92,7 @@ def make_data_path(basepath, resource, date):
     resource, "{}-{}.json".format(resource, datestamp))
 
 def ensure_heartrate_downloaded(fb, basepath, date):
-  assert datetime.datetime.now().date() > date
+  assert (datetime.datetime.now().date() > date) or (not FLAGS.exclude_today)
   filename = make_data_path(basepath, "heartrate", date)
   mkdir_p(os.path.dirname(filename))
   if os.path.exists(filename):
@@ -102,18 +103,20 @@ def ensure_heartrate_downloaded(fb, basepath, date):
     f.write(json.dumps(data, indent=2))
   return data
 
-def dates_within_horizon(n, nowdate=None):
+def dates_within_horizon(n, nowdate=None, exclusive=True):
   nowdate = nowdate or datetime.datetime.now().date()
   ago = nowdate - datetime.timedelta(days=n)
-  for t in dates_from(ago, nowdate):
+  for t in dates_from(ago, nowdate, exclusive=exclusive):
     yield t
 
 def next_day(d):
   return d + datetime.timedelta(days=1)
 
 
-def dates_from(startdate, nowdate=None):
+def dates_from(startdate, nowdate=None, exclusive=True):
   nowdate = nowdate or datetime.datetime.now().date()
+  if not exclusive:
+    nowdate = next_day(nowdate)
   t = startdate
   while t < nowdate:
     yield t
@@ -140,14 +143,15 @@ def find_gap(basepath, resource):
 if __name__ == "__main__":
   FLAGS(sys.argv)
   fb = obtain_fitbit(FLAGS.secrets, FLAGS.browser)
+  exclusive = FLAGS.exclude_today
   if FLAGS.begin_from:
-    dates = dates_from(parse_date(FLAGS.begin_from))
+    dates = dates_from(parse_date(FLAGS.begin_from), exclusive=exclusive)
   elif FLAGS.fill_gaps:
     gap_date = find_gap(FLAGS.output_datadir, "heartrate")
     print "First gap:", gap_date
-    dates = dates_from(gap_date)
+    dates = dates_from(gap_date, exclusive=exclude)
   else:
-    dates = dates_within_horizon(FLAGS.horizon_days)
+    dates = dates_within_horizon(FLAGS.horizon_days, exclusive=exclusive)
   for date in dates:
     data = ensure_heartrate_downloaded(fb, FLAGS.output_datadir, date)
     points = len(data["activities-heart-intraday"]["dataset"])
